@@ -10,6 +10,7 @@ import sys
 import requests
 import json
 import getpass
+from datetime import datetime
 
 #Setup command line arguments using Python argparse
 parser = argparse.ArgumentParser(description='A tool to display virtual server certificate information')
@@ -41,7 +42,7 @@ def get_auth_token(bigip, username, password):
         print ('Got Auth Token: %s' % (token))
     else:
         print ('Unexpected error attempting POST to get auth token')
-        quit()
+        jquit()
     return token
 
 user = args.user
@@ -57,7 +58,9 @@ requests.packages.urllib3.disable_warnings()
 url_base = ('https://%s/mgmt/tm' % (args.bigip))
 
 
-
+factoryclientsslprofiles = set(['/Common/clientssl', '/Common/clientssl-insecure-compatible', '/Common/clientssl-secure', '/Common/crypto-server-default-clientssl', '/Common/splitsession-default-clientssl', '/Common/wom-default-clientssl'])
+factorycerts = set(['/Common/ca-bundle.crt', '/Common/default.crt', '/Common/f5-ca-bundle.crt', '/Common/f5-irule.crt'])
+factorykeys = set(['/Common/default.key', '/Common/f5_api_com.key'])
 clientsslprofileset = set()
 usedclientsslprofileset = set()
 certset = set()
@@ -67,27 +70,45 @@ usedkeyset = set()
 clientsslprofiles = bip.get('%s/ltm/profile/client-ssl' % (url_base)).json()
 for clientssl in clientsslprofiles['items']:
     #print ('Client SSL Profile: %s - Cert: %s' % (clientssl['name'], clientssl['cert']))
-    clientsslprofileset.add(clientssl['name'])
+    clientsslprofileset.add(clientssl['fullPath'])
+
+def process_client_ssl_profile(profileFullPath, virtualName):
+    #print ('profileFullPath: %s' % (profileFullPath))
+    clientsslprofile = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, profileFullPath.replace("/", "~", 2))).json()
+    certinfo = bip.get('%s/sys/file/ssl-cert/%s' % (url_base, clientsslprofile['cert'].replace("/", "~", 2))).json()
+    utcinseconds = (datetime.utcnow() - datetime(1970,1,1)).total_seconds()
+    if certinfo['expirationDate'] - utcinseconds < 7776000:
+        if certinfo['expirationDate'] < utcinseconds:
+            print ('!!Cert Appears to be Expired!!')
+        else:
+            print ('!!Cert Appears to be Expiring within 90 days!!')
+        print('Cert: %s' % (clientsslprofile['cert']))
+        print('Cert Subject: %s' % (certinfo['subject']))
+        print('Cert Expiration: %s' % (certinfo['expirationString']))
+        print('Cert Expire Date UTC: %s' % (certinfo['expirationDate']))
+    usedclientsslprofileset.add(profileFullPath)
+    # insert code for defaultsFrom (parent) handling
+    if clientsslprofile.get('defaultsFrom'):
+        if clientsslprofile['defaultsFrom'] != '/Common/clientssl' and clientsslprofile['defaultsFrom'] != 'none':
+            process_client_ssl_profile(clientsslprofile['defaultsFrom'], virtualName)
+    usedcertset.add(clientsslprofile['cert'])
+    if clientsslprofile['chain'] != 'none':
+        usedcertset.add(clientsslprofile['chain'])
+    usedkeyset.add(clientsslprofile['key'])
+    #certurlfragment = clientsslprofile['cert'].replace("/", "~", 2)
 
 
 virtuals = bip.get('%s/ltm/virtual' % (url_base)).json()
 for virtual in virtuals['items']:
-#    print ('Virtual: %s' % (virtual['name']))
-    virtualprofiles = bip.get('%s/ltm/virtual/%s/profiles' % (url_base, virtual['name'])).json()
+    print ('Virtual: %s' % (virtual['fullPath']))
+    virtualprofiles = bip.get('%s/ltm/virtual/%s/profiles' % (url_base, virtual['fullPath'].replace("/", "~", 2))).json()
     if virtualprofiles.get('items'):
         for profile in virtualprofiles['items']:
-            if profile['name'] in clientsslprofileset:
-                usedclientsslprofileset.add(profile['name'])
-                clientsslprofile = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, profile['name'])).json()
-                usedcertset.add(clientsslprofile['cert'])
-                usedkeyset.add(clientsslprofile['key'])
-                certurlfragment = clientsslprofile['cert'].replace("/", "~", 2)
-                print('Virtual: %s' % (virtual['name']))
-                print('Virtual Destination: %s' % (virtual['destination']))
-                if 'description' in virtual:
-                    print('Virtual Description: %s' % (virtual['description']))
-                certinfo = bip.get('%s/sys/file/ssl-cert/%s' % (url_base, certurlfragment)).json()
+            print ('Virtual: %s - Profile: %s' % (virtual['fullPath'], profile['fullPath']))
+            if profile['fullPath'] in clientsslprofileset:
+                process_client_ssl_profile(profile['fullPath'], virtual['fullPath'])
                 print('SSL Profile: %s' % (profile['name']))
-                print('Cert: %s' % (clientsslprofile['cert']))
-                print('Cert Expiration: %s' % (certinfo['expirationString']))
-                print('Cert Subject: %s' % (certinfo['subject']))
+
+print ('Usedclientsslprofileset: %s' % (usedclientsslprofileset))
+print ('Usedcertset: %s' % (usedcertset))
+print ('Usedkeyset: %s' % (usedkeyset))
