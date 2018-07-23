@@ -82,6 +82,7 @@ def process_client_ssl_profile(profileFullPath, virtualName):
             print ('!!Cert Appears to be Expired!!')
         else:
             print ('!!Cert Appears to be Expiring within 90 days!!')
+        print('Client-SSL Profile: %s' % (profileFullPath))
         print('Cert: %s' % (clientsslprofile['cert']))
         print('Cert Subject: %s' % (certinfo['subject']))
         print('Cert Expiration: %s' % (certinfo['expirationString']))
@@ -100,14 +101,14 @@ def process_client_ssl_profile(profileFullPath, virtualName):
 
 virtuals = bip.get('%s/ltm/virtual' % (url_base)).json()
 for virtual in virtuals['items']:
-    print ('Virtual: %s' % (virtual['fullPath']))
+    #print ('Virtual: %s' % (virtual['fullPath']))
     virtualprofiles = bip.get('%s/ltm/virtual/%s/profiles' % (url_base, virtual['fullPath'].replace("/", "~", 2))).json()
     if virtualprofiles.get('items'):
         for profile in virtualprofiles['items']:
-            print ('Virtual: %s - Profile: %s' % (virtual['fullPath'], profile['fullPath']))
+            #print ('Virtual: %s - Profile: %s' % (virtual['fullPath'], profile['fullPath']))
             if profile['fullPath'] in clientsslprofileset:
                 process_client_ssl_profile(profile['fullPath'], virtual['fullPath'])
-                print('SSL Profile: %s' % (profile['name']))
+                #print('SSL Profile: %s' % (profile['name']))
 
 print ('Usedclientsslprofileset: %s' % (usedclientsslprofileset))
 print ('Usedcertset: %s' % (usedcertset))
