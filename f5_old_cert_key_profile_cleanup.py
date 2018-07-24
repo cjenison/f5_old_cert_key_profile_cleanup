@@ -61,43 +61,49 @@ url_base = ('https://%s/mgmt/tm' % (args.bigip))
 factoryclientsslprofiles = set(['/Common/clientssl', '/Common/clientssl-insecure-compatible', '/Common/clientssl-secure', '/Common/crypto-server-default-clientssl', '/Common/splitsession-default-clientssl', '/Common/wom-default-clientssl'])
 factorycerts = set(['/Common/ca-bundle.crt', '/Common/default.crt', '/Common/f5-ca-bundle.crt', '/Common/f5-irule.crt'])
 factorykeys = set(['/Common/default.key', '/Common/f5_api_com.key'])
-clientsslprofileset = set()
-usedclientsslprofileset = set()
-certset = set()
-keyset = set()
-usedcertset = set()
-usedkeyset = set()
-clientsslprofiles = bip.get('%s/ltm/profile/client-ssl' % (url_base)).json()
-for clientssl in clientsslprofiles['items']:
-    #print ('Client SSL Profile: %s - Cert: %s' % (clientssl['name'], clientssl['cert']))
-    clientsslprofileset.add(clientssl['fullPath'])
+clientsslprofiles = set()
+usedclientsslprofiles = set()
+expiredcertclientsslprofiles = set()
+certs = set()
+keys = set()
+expiredcerts = set()
+soontoexpirecerts = set()
+usedcerts = set()
+usedkeys = set()
+virtualsWithExpiredCerts = set()
 
-def process_client_ssl_profile(profileFullPath, virtualName):
-    #print ('profileFullPath: %s' % (profileFullPath))
-    clientsslprofile = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, profileFullPath.replace("/", "~", 2))).json()
-    certinfo = bip.get('%s/sys/file/ssl-cert/%s' % (url_base, clientsslprofile['cert'].replace("/", "~", 2))).json()
+retrievedclientsslprofiles = bip.get('%s/ltm/profile/client-ssl' % (url_base)).json()
+for clientssl in retrievedclientsslprofiles['items']:
+    clientsslprofiles.add(clientssl['fullPath'])
+
+retrievedcerts = bip.get('%s/sys/file/ssl-cert/' % (url_base)).json()
+for cert in retrievedcerts['items']:
+    certs.add(cert['fullPath'])
+    certinfo = bip.get('%s/sys/file/ssl-cert/%s' % (url_base, cert['fullPath'].replace("/", "~", 2))).json()
     utcinseconds = (datetime.utcnow() - datetime(1970,1,1)).total_seconds()
     if certinfo['expirationDate'] - utcinseconds < 7776000:
         if certinfo['expirationDate'] < utcinseconds:
-            print ('!!Cert Appears to be Expired!!')
+            expiredcerts.add(cert['fullPath'])
         else:
-            print ('!!Cert Appears to be Expiring within 90 days!!')
-        print('Client-SSL Profile: %s' % (profileFullPath))
-        print('Cert: %s' % (clientsslprofile['cert']))
-        print('Cert Subject: %s' % (certinfo['subject']))
-        print('Cert Expiration: %s' % (certinfo['expirationString']))
-        print('Cert Expire Date UTC: %s' % (certinfo['expirationDate']))
-    usedclientsslprofileset.add(profileFullPath)
+            soontoexpirecerts.add(cert['fullPath'])
+
+retreivedkeys = bip.get('%s/sys/file/ssl-key/' % (url_base)).json()
+for key in retreivedkeys['items']:
+    keys.add(key['fullPath'])
+
+def processClientSslProfileFromVirtual(profileFullPath):
+    clientsslprofile = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, profileFullPath.replace("/", "~", 2))).json()
+    usedclientsslprofiles.add(profileFullPath)
     # insert code for defaultsFrom (parent) handling
     if clientsslprofile.get('defaultsFrom'):
         if clientsslprofile['defaultsFrom'] != '/Common/clientssl' and clientsslprofile['defaultsFrom'] != 'none':
-            process_client_ssl_profile(clientsslprofile['defaultsFrom'], virtualName)
-    usedcertset.add(clientsslprofile['cert'])
+            processClientSslProfile(clientsslprofile['defaultsFrom'])
+    if (clientsslprofile['cert'] in expiredcerts):
+        expiredcertclientsslprofiles.add(profileFullPath)
     if clientsslprofile['chain'] != 'none':
-        usedcertset.add(clientsslprofile['chain'])
-    usedkeyset.add(clientsslprofile['key'])
-    #certurlfragment = clientsslprofile['cert'].replace("/", "~", 2)
-
+        usedcerts.add(clientsslprofile['chain'])
+    usedcerts.add(clientsslprofile['cert'])
+    usedkeys.add(clientsslprofile['key'])
 
 virtuals = bip.get('%s/ltm/virtual' % (url_base)).json()
 for virtual in virtuals['items']:
@@ -105,11 +111,15 @@ for virtual in virtuals['items']:
     virtualprofiles = bip.get('%s/ltm/virtual/%s/profiles' % (url_base, virtual['fullPath'].replace("/", "~", 2))).json()
     if virtualprofiles.get('items'):
         for profile in virtualprofiles['items']:
-            #print ('Virtual: %s - Profile: %s' % (virtual['fullPath'], profile['fullPath']))
-            if profile['fullPath'] in clientsslprofileset:
-                process_client_ssl_profile(profile['fullPath'], virtual['fullPath'])
-                #print('SSL Profile: %s' % (profile['name']))
+            if profile['fullPath'] in clientsslprofiles:
+                processClientSslProfileFromVirtual(profile['fullPath'])
 
-print ('Usedclientsslprofileset: %s' % (usedclientsslprofileset))
-print ('Usedcertset: %s' % (usedcertset))
-print ('Usedkeyset: %s' % (usedkeyset))
+unusedclientsslprofiles = clientsslprofiles - usedclientsslprofiles
+unusedcerts = certs - usedcerts
+unusedkeys = keys - usedkeys
+
+print ('Usedclientsslprofiles: %s' % (usedclientsslprofiles))
+print ('Usedcerts: %s' % (usedcerts))
+print ('Unusedcerts: %s' % (unusedcerts))
+print ('Usedkeys: %s' % (usedkeys))
+print ('Unusedkeys: %s' % (unusedkeys))
