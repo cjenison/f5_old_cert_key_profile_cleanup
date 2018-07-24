@@ -73,7 +73,7 @@ token = get_auth_token(args.bigip, args.user, password)
 if token and token != 'Fail':
     bip.headers.update({'X-F5-Auth-Token': token})
 else:
-    bip.auth = (username, password)
+    bip.auth = (args.user, password)
 bip.verify = False
 requests.packages.urllib3.disable_warnings()
 url_base = ('https://%s/mgmt/tm' % (args.bigip))
