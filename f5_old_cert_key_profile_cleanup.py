@@ -12,6 +12,8 @@ import json
 import getpass
 from datetime import datetime
 
+requests.packages.urllib3.disable_warnings()
+
 # Taken from http://code.activestate.com/recipes/577058/
 def query_yes_no(question, default="no"):
     valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
