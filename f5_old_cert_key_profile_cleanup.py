@@ -3,7 +3,7 @@
 # Author: Chad Jenison (c.jenison at f5.com)
 # Version 1.0
 #
-# Script that uses F5 BIG-IP iControl REST API to display cert and expiration information on a virtual server basis
+# Script that uses F5 BIG-IP iControl REST API to identify expired/soon-to-expire certs (and client-ssl profiles) and prune them from the configuration if user wants
 
 import argparse
 import sys
@@ -36,7 +36,7 @@ def query_yes_no(question, default="no"):
             sys.stdout.write("Please respond with 'yes' or 'no' (or 'y' or 'n').\n")
 
 #Setup command line arguments using Python argparse
-parser = argparse.ArgumentParser(description='A tool to display virtual server certificate information')
+parser = argparse.ArgumentParser(description='A tool to identify expiring and soon to expire certs and related config detritus and assist user with pruning it from configuration')
 parser.add_argument('--bigip', help='IP or hostname of BIG-IP Management or Self IP', required=True)
 parser.add_argument('--user', help='username to use for authentication', required=True)
 
