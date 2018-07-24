@@ -12,6 +12,27 @@ import json
 import getpass
 from datetime import datetime
 
+# Taken from http://code.activestate.com/recipes/577058/
+def query_yes_no(question, default="no"):
+    valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
+    if default == None:
+        prompt = " [y/n] "
+    elif default == "yes":
+        prompt = " [Y/n] "
+    elif default == "no":
+        prompt = " [y/N] "
+    else:
+        raise ValueError("invalid default answer: '%s'" % default)
+    while 1:
+        sys.stdout.write(question + prompt)
+        choice = raw_input().lower()
+        if default is not None and choice == '':
+            return valid[default]
+        elif choice in valid.keys():
+            return valid[choice]
+        else:
+            sys.stdout.write("Please respond with 'yes' or 'no' (or 'y' or 'n').\n")
+
 #Setup command line arguments using Python argparse
 parser = argparse.ArgumentParser(description='A tool to display virtual server certificate information')
 parser.add_argument('--bigip', help='IP or hostname of BIG-IP Management or Self IP', required=True)
@@ -19,8 +40,6 @@ parser.add_argument('--user', help='username to use for authentication', require
 
 args = parser.parse_args()
 contentJsonHeader = {'Content-Type': "application/json"}
-
-
 
 def get_auth_token(bigip, username, password):
     authbip = requests.session()
@@ -42,7 +61,7 @@ def get_auth_token(bigip, username, password):
         print ('Got Auth Token: %s' % (token))
     else:
         print ('Unexpected error attempting POST to get auth token')
-        jquit()
+        quit()
     return token
 
 user = args.user
@@ -64,6 +83,7 @@ factorykeys = set(['/Common/default.key', '/Common/f5_api_com.key'])
 clientsslprofiles = set()
 usedclientsslprofiles = set()
 expiredcertclientsslprofiles = set()
+soontoexpirecertclientsslprofiles = set()
 certs = set()
 keys = set()
 expiredcerts = set()
@@ -71,10 +91,8 @@ soontoexpirecerts = set()
 usedcerts = set()
 usedkeys = set()
 virtualsWithExpiredCerts = set()
+virtualsWithSoonToExpireCerts = set()
 
-retrievedclientsslprofiles = bip.get('%s/ltm/profile/client-ssl' % (url_base)).json()
-for clientssl in retrievedclientsslprofiles['items']:
-    clientsslprofiles.add(clientssl['fullPath'])
 
 retrievedcerts = bip.get('%s/sys/file/ssl-cert/' % (url_base)).json()
 for cert in retrievedcerts['items']:
@@ -91,6 +109,15 @@ retreivedkeys = bip.get('%s/sys/file/ssl-key/' % (url_base)).json()
 for key in retreivedkeys['items']:
     keys.add(key['fullPath'])
 
+retrievedclientsslprofiles = bip.get('%s/ltm/profile/client-ssl' % (url_base)).json()
+for clientssl in retrievedclientsslprofiles['items']:
+    clientsslprofiles.add(clientssl['fullPath'])
+    clientsslprofile = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, clientssl['fullPath'].replace("/", "~", 2))).json()
+    if clientsslprofile['cert'] in expiredcerts:
+        expiredcertclientsslprofiles.add(clientssl['fullPath'])
+    if clientsslprofile['cert'] in soontoexpirecerts:
+        soontoexpirecertclientsslprofiles.add(clientssl['fullPath'])
+
 def processClientSslProfileFromVirtual(profileFullPath):
     clientsslprofile = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, profileFullPath.replace("/", "~", 2))).json()
     usedclientsslprofiles.add(profileFullPath)
@@ -98,12 +125,12 @@ def processClientSslProfileFromVirtual(profileFullPath):
     if clientsslprofile.get('defaultsFrom'):
         if clientsslprofile['defaultsFrom'] != '/Common/clientssl' and clientsslprofile['defaultsFrom'] != 'none':
             processClientSslProfile(clientsslprofile['defaultsFrom'])
-    if (clientsslprofile['cert'] in expiredcerts):
-        expiredcertclientsslprofiles.add(profileFullPath)
     if clientsslprofile['chain'] != 'none':
         usedcerts.add(clientsslprofile['chain'])
     usedcerts.add(clientsslprofile['cert'])
     usedkeys.add(clientsslprofile['key'])
+
+
 
 virtuals = bip.get('%s/ltm/virtual' % (url_base)).json()
 for virtual in virtuals['items']:
@@ -113,13 +140,68 @@ for virtual in virtuals['items']:
         for profile in virtualprofiles['items']:
             if profile['fullPath'] in clientsslprofiles:
                 processClientSslProfileFromVirtual(profile['fullPath'])
+                if profile['fullPath'] in expiredcertclientsslprofiles:
+                    virtualsWithExpiredCerts.add(virtual['fullPath'])
+                if profile['fullPath'] in soontoexpirecertclientsslprofiles:
+                    virtualsWithSoonToExpireCerts.add(virtual['fullPath'])
 
 unusedclientsslprofiles = clientsslprofiles - usedclientsslprofiles
 unusedcerts = certs - usedcerts
 unusedkeys = keys - usedkeys
 
-print ('Usedclientsslprofiles: %s' % (usedclientsslprofiles))
-print ('Usedcerts: %s' % (usedcerts))
-print ('Unusedcerts: %s' % (unusedcerts))
-print ('Usedkeys: %s' % (usedkeys))
-print ('Unusedkeys: %s' % (unusedkeys))
+for virtual in virtualsWithExpiredCerts:
+    print('Virtual Server: %s uses a client-ssl profile with expired cert' % (virtual))
+
+#for clientsslprofile in expiredcertclientsslprofiles:
+#    print('Client-ssl profile: %s uses an expired cert' % (clientsslprofile))
+
+for clientsslprofile in expiredcertclientsslprofiles:
+    if clientsslprofile in unusedclientsslprofiles:
+        if clientsslprofile not in factoryclientsslprofiles:
+            queryString = 'Client-ssl profile: %s is not used by a virtual server and has an expired cert; Delete profile?' % (clientsslprofile)
+            if query_yes_no(queryString, default='no'):
+                profile = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, clientsslprofile.replace("/", "~", 2))).json()
+                deleteprofile = bip.delete('%s/ltm/profile/client-ssl/%s' % (url_base, clientsslprofile.replace("/", "~", 2)))
+                if deleteprofile.status_code == 200:
+                    print('Successfully deleted client-ssl profile %s' % (clientsslprofile))
+                    #print('cert: %s - usedcerts: %s' % (profile['cert'], usedcerts))
+                    if profile['cert'] not in usedcerts and profile['cert'] not in factorycerts:
+                        queryString = 'Cert: %s from deleted client-ssl profile: %s not used; delete it?' % (profile['cert'], clientsslprofile)
+                        if query_yes_no(queryString, default='no'):
+                            deletecert = bip.delete('%s/sys/file/ssl-cert/%s' % (url_base, profile['cert'].replace("/", "~", 2)))
+                            if deletecert.status_code == 200:
+                                print('Successfully deleted cert %s' % (profile['cert']))
+                                expiredcerts.discard(profile['cert'])
+                            else:
+                                print('Unable to delete cert %s' % (profile['cert']))
+                                print('Message: %s' % (deletecert.json()['message']))
+                    if profile['key'] not in usedkeys and profile['key'] not in factorykeys:
+                        queryString = 'Key: %s from deleted client-ssl profile: %s not used; delete it?' % (profile['key'], clientsslprofile)
+                        if query_yes_no(queryString, default='no'):
+                            deletekey = bip.delete('%s/sys/file/ssl-key/%s' % (url_base, profile['key'].replace("/", "~", 2)))
+                            if deletekey.status_code == 200:
+                                print('Successfully deleted key %s' % (profile['key']))
+                            else:
+                                print('Unable to delete key %s' % (profile['key']))
+                                print('Message: %s' % (deletekey.json()['message']))
+                else:
+                    print('Unable to delete client-ssl profile %s' % (clientsslprofile))
+                    print('Message: %s' % (deleteprofile.json()['message']))
+
+for virtual in virtualsWithExpiredCerts:
+    print('Virtual: %s is using a client-ssl profile with an expired cert' % (virtual))
+for virtual in virtualsWithSoonToExpireCerts:
+    print('Virtual: %s is using a client-ssl profile with a soon to expire cert' % (virtual))
+for clientsslprofile in soontoexpirecertclientsslprofiles:
+    print('Client-ssl profile: %s is using a soon to expire cert' % (clientsslprofile))
+for cert in expiredcerts:
+    print('Cert: %s is expired' % (cert))
+for cert in soontoexpirecerts:
+    print('Cert: %s is expiring soon' % (cert))
+
+#print ('Usedclientsslprofiles: %s' % (usedclientsslprofiles))
+#print ('Expiredclientsslprofiles: %s' % (expiredcertclientsslprofiles))
+#print ('Usedcerts: %s' % (usedcerts))
+#print ('Unusedcerts: %s' % (unusedcerts))
+#print ('Usedkeys: %s' % (usedkeys))
+#print ('Unusedkeys: %s' % (unusedkeys))
