@@ -149,9 +149,6 @@ unusedclientsslprofiles = clientsslprofiles - usedclientsslprofiles
 unusedcerts = certs - usedcerts
 unusedkeys = keys - usedkeys
 
-for virtual in virtualsWithExpiredCerts:
-    print('Virtual Server: %s uses a client-ssl profile with expired cert' % (virtual))
-
 #for clientsslprofile in expiredcertclientsslprofiles:
 #    print('Client-ssl profile: %s uses an expired cert' % (clientsslprofile))
 
