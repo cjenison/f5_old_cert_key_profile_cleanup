@@ -39,6 +39,7 @@ def query_yes_no(question, default="no"):
 parser = argparse.ArgumentParser(description='A tool to identify expiring and soon to expire certs and related config detritus and assist user with pruning it from configuration')
 parser.add_argument('--bigip', help='IP or hostname of BIG-IP Management or Self IP', required=True)
 parser.add_argument('--user', help='username to use for authentication', required=True)
+parser.add_arguemnt('--days', help='number of days before expiration to consider cert as expiring soon', default=30)
 
 args = parser.parse_args()
 contentJsonHeader = {'Content-Type': "application/json"}
@@ -101,7 +102,7 @@ for cert in retrievedcerts['items']:
     certs.add(cert['fullPath'])
     certinfo = bip.get('%s/sys/file/ssl-cert/%s' % (url_base, cert['fullPath'].replace("/", "~", 2))).json()
     utcinseconds = (datetime.utcnow() - datetime(1970,1,1)).total_seconds()
-    if certinfo['expirationDate'] - utcinseconds < 7776000:
+    if certinfo['expirationDate'] - utcinseconds < 86400*args.days:
         if certinfo['expirationDate'] < utcinseconds:
             expiredcerts.add(cert['fullPath'])
         else:
@@ -126,9 +127,10 @@ def processClientSslProfileFromVirtual(profileFullPath):
     # insert code for defaultsFrom (parent) handling
     if clientsslprofile.get('defaultsFrom'):
         if clientsslprofile['defaultsFrom'] != '/Common/clientssl' and clientsslprofile['defaultsFrom'] != 'none':
-            processClientSslProfile(clientsslprofile['defaultsFrom'])
-    if clientsslprofile['chain'] != 'none':
-        usedcerts.add(clientsslprofile['chain'])
+            processClientSslProfileFromVirtual(clientsslprofile['defaultsFrom'])
+    if clientsslprofile.get('chain'):
+        if clientsslprofile['chain'] != 'none':
+            usedcerts.add(clientsslprofile['chain'])
     usedcerts.add(clientsslprofile['cert'])
     usedkeys.add(clientsslprofile['key'])
 
