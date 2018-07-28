@@ -39,7 +39,8 @@ def query_yes_no(question, default="no"):
 parser = argparse.ArgumentParser(description='A tool to identify expiring and soon to expire certs and related config detritus and assist user with pruning it from configuration')
 parser.add_argument('--bigip', help='IP or hostname of BIG-IP Management or Self IP', required=True)
 parser.add_argument('--user', help='username to use for authentication', required=True)
-parser.add_arguemnt('--days', help='number of days before expiration to consider cert as expiring soon', default=30)
+parser.add_argument('--days', help='number of days before expiration to consider cert as expiring soon', default=30)
+parser.add_argument('--reportonly', help='produce report only; do not prompt for configuration object deletion', action='store_true')
 
 args = parser.parse_args()
 contentJsonHeader = {'Content-Type': "application/json"}
@@ -156,57 +157,57 @@ unusedkeys = keys - usedkeys
 #for clientsslprofile in expiredcertclientsslprofiles:
 #    print('Client-ssl profile: %s uses an expired cert' % (clientsslprofile))
 
-for clientsslprofile in expiredcertclientsslprofiles:
-    if clientsslprofile in unusedclientsslprofiles:
-        if clientsslprofile not in factoryclientsslprofiles:
-            queryString = 'Client-ssl profile: %s is not used by a virtual server and has an expired cert; Delete profile?' % (clientsslprofile)
-            if query_yes_no(queryString, default='no'):
-                profile = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, clientsslprofile.replace("/", "~", 2))).json()
-                deleteprofile = bip.delete('%s/ltm/profile/client-ssl/%s' % (url_base, clientsslprofile.replace("/", "~", 2)))
-                if deleteprofile.status_code == 200:
-                    print('Successfully deleted client-ssl profile %s' % (clientsslprofile))
-                    #print('cert: %s - usedcerts: %s' % (profile['cert'], usedcerts))
-                    if profile['cert'] not in usedcerts and profile['cert'] not in factorycerts:
-                        queryString = 'Cert: %s from deleted client-ssl profile: %s not used; delete it?' % (profile['cert'], clientsslprofile)
-                        if query_yes_no(queryString, default='no'):
-                            deletecert = bip.delete('%s/sys/file/ssl-cert/%s' % (url_base, profile['cert'].replace("/", "~", 2)))
-                            if deletecert.status_code == 200:
-                                print('Successfully deleted cert %s' % (profile['cert']))
-                                expiredcerts.discard(profile['cert'])
-                            else:
-                                print('Unable to delete cert %s' % (profile['cert']))
-                                print('Message: %s' % (deletecert.json()['message']))
-                    if profile['key'] not in usedkeys and profile['key'] not in factorykeys:
-                        queryString = 'Key: %s from deleted client-ssl profile: %s not used; delete it?' % (profile['key'], clientsslprofile)
-                        if query_yes_no(queryString, default='no'):
-                            deletekey = bip.delete('%s/sys/file/ssl-key/%s' % (url_base, profile['key'].replace("/", "~", 2)))
-                            if deletekey.status_code == 200:
-                                print('Successfully deleted key %s' % (profile['key']))
-                            else:
-                                print('Unable to delete key %s' % (profile['key']))
-                                print('Message: %s' % (deletekey.json()['message']))
-                else:
-                    print('Unable to delete client-ssl profile %s' % (clientsslprofile))
-                    print('Message: %s' % (deleteprofile.json()['message']))
-
-for cert in expiredcerts:
-    certName = cert.rsplit('.', 1)[0]
-    certRetrieved = bip.get('%s/sys/file/ssl-cert/%s.crt' % (url_base, certName.replace("/","~", 2)))
-    keyRetrieved = bip.get('%s/sys/file/ssl-key/%s.key' % (url_base, certName.replace("/","~", 2)))
-    if certRetrieved.status_code == 200 and keyRetrieved.status_code == 200:
-        if '%s.key' % (certName) in unusedkeys and cert in unusedcerts:
-            queryString = 'Cert %s and Key %s.key expired and unused; delete them?' % (cert, certName)
+if not args.reportonly:
+    for clientsslprofile in expiredcertclientsslprofiles:
+        if clientsslprofile in unusedclientsslprofiles:
+            if clientsslprofile not in factoryclientsslprofiles:
+                queryString = 'Client-ssl profile: %s is not used by a virtual server and has an expired cert; Delete profile?' % (clientsslprofile)
+                if query_yes_no(queryString, default='no'):
+                    profile = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, clientsslprofile.replace("/", "~", 2))).json()
+                    deleteprofile = bip.delete('%s/ltm/profile/client-ssl/%s' % (url_base, clientsslprofile.replace("/", "~", 2)))
+                    if deleteprofile.status_code == 200:
+                        print('Successfully deleted client-ssl profile %s' % (clientsslprofile))
+                        #print('cert: %s - usedcerts: %s' % (profile['cert'], usedcerts))
+                        if profile['cert'] not in usedcerts and profile['cert'] not in factorycerts:
+                            queryString = 'Cert: %s from deleted client-ssl profile: %s not used; delete it?' % (profile['cert'], clientsslprofile)
+                            if query_yes_no(queryString, default='no'):
+                                deletecert = bip.delete('%s/sys/file/ssl-cert/%s' % (url_base, profile['cert'].replace("/", "~", 2)))
+                                if deletecert.status_code == 200:
+                                    print('Successfully deleted cert %s' % (profile['cert']))
+                                    expiredcerts.discard(profile['cert'])
+                                else:
+                                    print('Unable to delete cert %s' % (profile['cert']))
+                                    print('Message: %s' % (deletecert.json()['message']))
+                        if profile['key'] not in usedkeys and profile['key'] not in factorykeys:
+                            queryString = 'Key: %s from deleted client-ssl profile: %s not used; delete it?' % (profile['key'], clientsslprofile)
+                            if query_yes_no(queryString, default='no'):
+                                deletekey = bip.delete('%s/sys/file/ssl-key/%s' % (url_base, profile['key'].replace("/", "~", 2)))
+                                if deletekey.status_code == 200:
+                                    print('Successfully deleted key %s' % (profile['key']))
+                                else:
+                                    print('Unable to delete key %s' % (profile['key']))
+                                    print('Message: %s' % (deletekey.json()['message']))
+                    else:
+                        print('Unable to delete client-ssl profile %s' % (clientsslprofile))
+                        print('Message: %s' % (deleteprofile.json()['message']))
+    for cert in expiredcerts:
+        certName = cert.rsplit('.', 1)[0]
+        certRetrieved = bip.get('%s/sys/file/ssl-cert/%s.crt' % (url_base, certName.replace("/","~", 2)))
+        keyRetrieved = bip.get('%s/sys/file/ssl-key/%s.key' % (url_base, certName.replace("/","~", 2)))
+        if certRetrieved.status_code == 200 and keyRetrieved.status_code == 200:
+            if '%s.key' % (certName) in unusedkeys and cert in unusedcerts:
+                queryString = 'Cert %s and Key %s.key expired and unused; delete them?' % (cert, certName)
+                if query_yes_no(queryString, default='no'):
+                    certDelete = bip.delete('%s/sys/file/ssl-cert/%s' % (url_base, cert.replace("/", "~", 2)))
+                    if certDelete.status_code == 200:
+                        expiredcerts.discard(cert)
+                    keyDelete = bip.delete('%s/sys/file/ssl-key/%s.key' % (url_base, certName.replace("/", "~", 2)))
+        elif certRetrieved.status_code == 200:
+            queryString = 'Cert %s expired and unused (no paired key); delete it?' % (cert)
             if query_yes_no(queryString, default='no'):
                 certDelete = bip.delete('%s/sys/file/ssl-cert/%s' % (url_base, cert.replace("/", "~", 2)))
                 if certDelete.status_code == 200:
                     expiredcerts.discard(cert)
-                keyDelete = bip.delete('%s/sys/file/ssl-key/%s.key' % (url_base, certName.replace("/", "~", 2)))
-    elif certRetrieved.status_code == 200:
-        queryString = 'Cert %s expired and unused (no paired key); delete it?' % (cert)
-        if query_yes_no(queryString, default='no'):
-            certDelete = bip.delete('%s/sys/file/ssl-cert/%s' % (url_base, cert.replace("/", "~", 2)))
-            if certDelete.status_code == 200:
-                expiredcerts.discard(cert)
 
 
 for virtual in virtualsWithExpiredCerts:
