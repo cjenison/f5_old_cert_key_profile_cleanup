@@ -194,10 +194,10 @@ if not args.reportonly:
                     else:
                         print('Unable to delete client-ssl profile %s' % (clientsslprofile))
                         print('Message: %s' % (deleteprofile.json()['message']))
+                print('-')
     for cert in expiredcerts:
         certName = cert.rsplit('.', 1)[0]
         certRetrieved = bip.get('%s/sys/file/ssl-cert/%s.crt' % (url_base, certName.replace("/","~", 2)))
-        print('certRetrieved Dict: %s' % (certRetrieved))
         keyRetrieved = bip.get('%s/sys/file/ssl-key/%s.key' % (url_base, certName.replace("/","~", 2)))
         print('Cert: %s - Expiration: %s' % (cert, certRetrieved.json()['expirationString']))
         print('Subject: %s' % (certRetrieved.json()['subject']))
@@ -215,18 +215,57 @@ if not args.reportonly:
                 certDelete = bip.delete('%s/sys/file/ssl-cert/%s' % (url_base, cert.replace("/", "~", 2)))
                 if certDelete.status_code == 200:
                     expiredcerts.discard(cert)
+        print('-')
 
 
 for virtual in virtualsWithExpiredCerts:
     print('Virtual: %s is using a client-ssl profile with an expired cert' % (virtual))
+    virtualprofiles = bip.get('%s/ltm/virtual/%s/profiles' % (url_base, virtual.replace("/", "~", 2))).json()
+    for profile in virtualprofiles['items']:
+        if profile['fullPath'] in expiredcertclientsslprofiles:
+            print ('Client SSL Profile: %s' % (profile['fullPath']))
+            profileRetrieved = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, profile['fullPath'].replace("/", "~", 2))).json()
+            certRetrieved = bip.get('%s/sys/file/ssl-cert/%s' % (url_base, profileRetrieved['cert'].replace("/", "~", 2))).json()
+            print ('Cert: %s - Expiration: %s' % (profileRetrieved['cert'], certRetrieved['expirationString']))
+            print ('Subject: %s' % (certRetrieved['subject']))
+    print ('-')
 for virtual in virtualsWithSoonToExpireCerts:
     print('Virtual: %s is using a client-ssl profile with a soon to expire cert' % (virtual))
+    virtualprofiles = bip.get('%s/ltm/virtual/%s/profiles' % (url_base, virtual.replace("/", "~", 2))).json()
+    for profile in virtualprofiles['items']:
+        if profile['fullPath'] in soontoexpirecertclientsslprofiles:
+            print ('Client SSL Profile: %s' % (profile['fullPath']))
+            profileRetrieved = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, profile['fullPath'].replace("/", "~", 2))).json()
+            certRetrieved = bip.get('%s/sys/file/ssl-cert/%s' % (url_base, profileRetrieved['cert'].replace("/", "~", 2))).json()
+            print ('Cert: %s - Expiration: %s' % (profileRetrieved['cert'], certRetrieved['expirationString']))
+            print ('Subject: %s' % (certRetrieved['subject']))
+    print ('-')
+for clientsslprofile in expiredcertclientsslprofiles:
+    print('Client-ssl profile: %s is using an expired cert' % (clientsslprofile))
+    profileRetrieved = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, clientsslprofile.replace("/", "~", 2))).json()
+    certRetrieved = bip.get('%s/sys/file/ssl-cert/%s' % (url_base, profileRetrieved['cert'].replace("/", "~", 2))).json()
+    print ('Cert: %s - Expiration: %s' % (profileRetrieved['cert'], certRetrieved['expirationString']))
+    print ('Subject: %s' % (certRetrieved['subject']))
+    print ('-')
 for clientsslprofile in soontoexpirecertclientsslprofiles:
     print('Client-ssl profile: %s is using a soon to expire cert' % (clientsslprofile))
+    profileRetrieved = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, clientsslprofile.replace("/", "~", 2))).json()
+    certRetrieved = bip.get('%s/sys/file/ssl-cert/%s' % (url_base, profileRetrieved['cert'].replace("/", "~", 2))).json()
+    print ('Cert: %s - Expiration: %s' % (profileRetrieved['cert'], certRetrieved['expirationString']))
+    print ('Subject: %s' % (certRetrieved['subject']))
+    print ('-')
 for cert in expiredcerts:
     print('Cert: %s is expired' % (cert))
+    certRetrieved = bip.get('%s/sys/file/ssl-cert/%s' % (url_base, cert.replace("/", "~", 2))).json()
+    print ('Cert: %s - Expiration: %s' % (cert, certRetrieved['expirationString']))
+    print ('Subject: %s' % (certRetrieved['subject']))
+    print ('-')
 for cert in soontoexpirecerts:
     print('Cert: %s is expiring soon' % (cert))
+    certRetrieved = bip.get('%s/sys/file/ssl-cert/%s' % (url_base, cert.replace("/", "~", 2))).json()
+    print ('Cert: %s - Expiration: %s' % (cert, certRetrieved['expirationString']))
+    print ('Subject: %s' % (certRetrieved['subject']))
+    print ('-')
 
 #print ('Usedclientsslprofiles: %s' % (usedclientsslprofiles))
 #print ('Expiredclientsslprofiles: %s' % (expiredcertclientsslprofiles))
