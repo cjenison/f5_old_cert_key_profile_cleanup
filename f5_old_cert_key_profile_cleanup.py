@@ -161,9 +161,13 @@ if not args.reportonly:
     for clientsslprofile in expiredcertclientsslprofiles:
         if clientsslprofile in unusedclientsslprofiles:
             if clientsslprofile not in factoryclientsslprofiles:
+                profile = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, clientsslprofile.replace("/", "~", 2))).json()
+                certRetrieved = bip.get('%s/sys/file/ssl-cert/%s' % (url_base, profile['cert'].replace("/","~", 2))).json()
+                print('Client-SSL Profile: %s' % (clientsslprofile))
+                print('Referenced Cert: %s - Expiration: %s' % (profile['cert'], certRetrieved['expirationString']))
+                print('Referenced Cert Subject: %s' % (certRetrieved['subject']))
                 queryString = 'Client-ssl profile: %s is not used by a virtual server and has an expired cert; Delete profile?' % (clientsslprofile)
                 if query_yes_no(queryString, default='no'):
-                    profile = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, clientsslprofile.replace("/", "~", 2))).json()
                     deleteprofile = bip.delete('%s/ltm/profile/client-ssl/%s' % (url_base, clientsslprofile.replace("/", "~", 2)))
                     if deleteprofile.status_code == 200:
                         print('Successfully deleted client-ssl profile %s' % (clientsslprofile))
@@ -193,7 +197,10 @@ if not args.reportonly:
     for cert in expiredcerts:
         certName = cert.rsplit('.', 1)[0]
         certRetrieved = bip.get('%s/sys/file/ssl-cert/%s.crt' % (url_base, certName.replace("/","~", 2)))
+        print('certRetrieved Dict: %s' % (certRetrieved))
         keyRetrieved = bip.get('%s/sys/file/ssl-key/%s.key' % (url_base, certName.replace("/","~", 2)))
+        print('Cert: %s - Expiration: %s' % (cert, certRetrieved.json()['expirationString']))
+        print('Subject: %s' % (certRetrieved.json()['subject']))
         if certRetrieved.status_code == 200 and keyRetrieved.status_code == 200:
             if '%s.key' % (certName) in unusedkeys and cert in unusedcerts:
                 queryString = 'Cert %s and Key %s.key expired and unused; delete them?' % (cert, certName)
