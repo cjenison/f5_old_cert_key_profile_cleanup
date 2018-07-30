@@ -41,9 +41,11 @@ parser.add_argument('--bigip', help='IP or hostname of BIG-IP Management or Self
 parser.add_argument('--user', help='username to use for authentication', required=True)
 parser.add_argument('--days', help='number of days before expiration to consider cert as expiring soon', default=30)
 parser.add_argument('--reportonly', help='produce report only; do not prompt for configuration object deletion', action='store_true')
+parser.add_argument('--makeucsonchange', help='produce a UCS on BIG-IP if user chooses to alter (delete) items in the configuration', action='store_true')
 
 args = parser.parse_args()
 contentJsonHeader = {'Content-Type': "application/json"}
+filename = ''
 
 def get_auth_token(bigip, username, password):
     authbip = requests.session()
@@ -157,8 +159,28 @@ unusedkeys = keys - usedkeys
 #for clientsslprofile in expiredcertclientsslprofiles:
 #    print('Client-ssl profile: %s uses an expired cert' % (clientsslprofile))
 
+def makeBackup():
+    global ucsSaved
+    global filename
+    if not ucsSaved and args.makeucsonchange:
+        getDate = bip.get('%s/sys/software/' % (url_base))
+        datestring = getDate.headers['Date'].replace(" ", "_", 4).replace(":", "_", 2)
+        ucsSavePayload = {}
+        ucsSavePayload['command'] = 'save'
+        filename = 'sslcleanup_%s.ucs' % (datestring)
+        ucsSavePayload['name'] = filename
+        print('Attempting UCS Creation - Filename: %s - Please Wait!' % (filename))
+        ucsSave = bip.post('%s/sys/ucs/' % (url_base), headers=contentJsonHeader, data=json.dumps(ucsSavePayload))
+        if ucsSave.status_code == 200:
+            print('UCS File: %s saved to BIG-IP' % (filename))
+            ucsSaved = True
+        else:
+            print('Problem Saving UCS - Message: %s' % (ucsSave.json()['message']))
+
 if not args.reportonly:
-    for clientsslprofile in expiredcertclientsslprofiles:
+    ucsSaved = False
+    configChanged = False
+    for clientsslprofile in set(expiredcertclientsslprofiles):
         if clientsslprofile in unusedclientsslprofiles:
             if clientsslprofile not in factoryclientsslprofiles:
                 profile = bip.get('%s/ltm/profile/client-ssl/%s' % (url_base, clientsslprofile.replace("/", "~", 2))).json()
@@ -168,8 +190,11 @@ if not args.reportonly:
                 print('Referenced Cert Subject: %s' % (certRetrieved['subject']))
                 queryString = 'Client-ssl profile: %s is not used by a virtual server and has an expired cert; Delete profile?' % (clientsslprofile)
                 if query_yes_no(queryString, default='no'):
+                    configChanged = True
+                    makeBackup()
                     deleteprofile = bip.delete('%s/ltm/profile/client-ssl/%s' % (url_base, clientsslprofile.replace("/", "~", 2)))
                     if deleteprofile.status_code == 200:
+                        expiredcertclientsslprofiles.discard(clientsslprofile)
                         print('Successfully deleted client-ssl profile %s' % (clientsslprofile))
                         #print('cert: %s - usedcerts: %s' % (profile['cert'], usedcerts))
                         if profile['cert'] not in usedcerts and profile['cert'] not in factorycerts:
@@ -195,7 +220,7 @@ if not args.reportonly:
                         print('Unable to delete client-ssl profile %s' % (clientsslprofile))
                         print('Message: %s' % (deleteprofile.json()['message']))
                 print('-')
-    for cert in expiredcerts:
+    for cert in set(expiredcerts):
         certName = cert.rsplit('.', 1)[0]
         certRetrieved = bip.get('%s/sys/file/ssl-cert/%s.crt' % (url_base, certName.replace("/","~", 2)))
         keyRetrieved = bip.get('%s/sys/file/ssl-key/%s.key' % (url_base, certName.replace("/","~", 2)))
@@ -205,6 +230,8 @@ if not args.reportonly:
             if '%s.key' % (certName) in unusedkeys and cert in unusedcerts:
                 queryString = 'Cert %s and Key %s.key expired and unused; delete them?' % (cert, certName)
                 if query_yes_no(queryString, default='no'):
+                    configChanged = True
+                    makeBackup()
                     certDelete = bip.delete('%s/sys/file/ssl-cert/%s' % (url_base, cert.replace("/", "~", 2)))
                     if certDelete.status_code == 200:
                         expiredcerts.discard(cert)
@@ -212,6 +239,8 @@ if not args.reportonly:
         elif certRetrieved.status_code == 200:
             queryString = 'Cert %s expired and unused (no paired key); delete it?' % (cert)
             if query_yes_no(queryString, default='no'):
+                configChanged = True
+                makeBackup()
                 certDelete = bip.delete('%s/sys/file/ssl-cert/%s' % (url_base, cert.replace("/", "~", 2)))
                 if certDelete.status_code == 200:
                     expiredcerts.discard(cert)
@@ -267,9 +296,7 @@ for cert in soontoexpirecerts:
     print ('Subject: %s' % (certRetrieved['subject']))
     print ('-')
 
-#print ('Usedclientsslprofiles: %s' % (usedclientsslprofiles))
-#print ('Expiredclientsslprofiles: %s' % (expiredcertclientsslprofiles))
-#print ('Usedcerts: %s' % (usedcerts))
-#print ('Unusedcerts: %s' % (unusedcerts))
-#print ('Usedkeys: %s' % (usedkeys))
-#print ('Unusedkeys: %s' % (unusedkeys))
+if not args.reportonly and configChanged:
+    print('Configuration Changed - Please Verify and if appropriate ConfigSync to Peer system')
+    if args.makeucsonchange:
+        print('UCS Backup File in place on system: %s - Restore from UCS if mistake was made' % (filename))
